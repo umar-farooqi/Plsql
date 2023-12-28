@@ -14,3 +14,34 @@ DECLARE
 BEGIN
     CalculateSum(num1, num2);
 END;
+
+==============================================================
+WORK DONE ALHAMDULILLAH
+
+DECLARE
+    l_file_names apex_t_varchar2;
+    l_file  apex_application_temp_files%rowtype;
+
+BEGIN
+    l_file_names := apex_string.split (
+                        p_str => :P290_DOC_NAME,
+                        p_sep => ':' );
+    
+    FOR i IN 1 .. l_file_names.count LOOP
+        SELECT *
+        INTO l_file
+        FROM apex_application_temp_files
+        WHERE name = l_file_names(i) AND APPLICATION_ID = :APP_ID;
+        -- Select "IMAGES_SEQ".CURRVAL 
+        --       Into :P266_ID
+        --       From Dual; 
+
+        INSERT INTO DGMS_FILES
+
+            (NAME,TYPE,IS_ACTIVE,DOC_NAME, DOCTYPE, DOCNAME)
+        VALUES 
+            (:P290_NAME,:P290_TYPE,:P290_IS_ACTIVE,l_file.BLOB_CONTENT, l_file.MIME_TYPE, l_file.FILENAME);
+            
+        COMMIT;
+    END LOOP;
+END;
