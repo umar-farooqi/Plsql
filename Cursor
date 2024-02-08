@@ -1,5 +1,5 @@
 passing value in other table & from with cursor
-
+  
 DECLARE
    CURSOR CUR_NAME IS
       SELECT BOOKING_ID,  TRANSACTION_TYPE , DR_AMOUNT 
