@@ -16,3 +16,7 @@ begin
          where EMP_ID = :EMP_ID;
      end case;
 end;
+==================
+note: jb ap ki pk pr trigger lga ho ga to ap ne pk nai deni . agr trigger na lga hoa phir pk deni ha ,
+2nd ) ap ki jb pk na hoi to ap ne rowid deni ha other wise rowid ki jga ap ne pk deni ha   Master detail link code ;
+======================
