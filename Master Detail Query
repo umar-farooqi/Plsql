@@ -17,6 +17,6 @@ begin
      end case;
 end;
 ==================
-note: jb ap ki pk pr trigger lga ho ga to ap ne pk nai deni . agr trigger na lga hoa phir pk deni ha ,
-2nd ) ap ki jb pk na hoi to ap ne rowid deni ha other wise rowid ki jga ap ne pk deni ha   Master detail link code ;
+note: jb ap ki primary key pr trigger lga ho ga to ap ne pk nai deni . agr trigger na lga hoa phir pk deni ha ,
+2nd ) ap ki jb primary key na hoi to ap ne rowid deni ha other wise rowid ki jga ap ne primary key deni ha   Master detail link code ;
 ======================
