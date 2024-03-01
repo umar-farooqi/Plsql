@@ -13,3 +13,23 @@ return true;
 end if;
 end;
 ==========================================================================
+
+DECLARE
+    v_status VARCHAR2(1);
+BEGIN
+
+    SELECT STATUS INTO v_status
+    FROM DGMS_BILLS_SETUP_CHILD
+    WHERE LIVING_STATUS = :P173_LIVING_STATUS;
+
+    
+    IF v_status = 'Y' THEN
+    RETURN ('Cannot update because the status is already set to "Y".');
+       
+   
+    ELSIF v_status = 'N' THEN
+        UPDATE DGMS_BILLS_SETUP_CHILD
+        SET STATUS = 'Y'
+        WHERE LIVING_STATUS = :P173_LIVING_STATUS;
+    END IF;
+END;
