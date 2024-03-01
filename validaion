@@ -1,0 +1,15 @@
+Duplicate value not insert into column
+declare
+v_count number;
+begin
+select COUNT(METER_REF_NO) into v_count from DGMS_BILLS_SETUP
+     WHERE UPPER(METER_REF_NO) = UPPER(:METER_REF_NO)
+     and ID = :ID AND PLOT_ID = :PLOT_ID;
+  
+if v_count > 1 then
+return false;
+else 
+return true;
+end if;
+end;
+==========================================================================
