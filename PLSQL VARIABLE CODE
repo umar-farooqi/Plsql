@@ -1,0 +1,14 @@
+DECLARE
+    v_count NUMBER := 0;
+BEGIN
+    FOR i IN 1..10 LOOP
+        IF MOD(i, 3) = 0 THEN
+            v_count := v_count + 1;
+        END IF;
+    END LOOP;
+    
+    DBMS_OUTPUT.PUT_LINE('Count of even numbers: ' || v_count);
+EXCEPTION
+    WHEN OTHERS THEN
+        DBMS_OUTPUT.PUT_LINE('An error occurred.');
+END;
