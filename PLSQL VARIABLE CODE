@@ -12,3 +12,13 @@ EXCEPTION
     WHEN OTHERS THEN
         DBMS_OUTPUT.PUT_LINE('An error occurred.');
 END;
+=============================================================
+CREATE OR REPLACE PROCEDURE calculate_square(p_number IN NUMBER) AS
+    v_result NUMBER;
+BEGIN
+    v_result := p_number * p_number;
+    DBMS_OUTPUT.PUT_LINE('The square of ' || p_number || ' is ' || v_result);
+END;
+BEGIN
+    calculate_square(5); -- Passing 5 as input
+END;
