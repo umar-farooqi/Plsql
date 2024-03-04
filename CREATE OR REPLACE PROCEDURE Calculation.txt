@@ -2,7 +2,7 @@ CREATE OR REPLACE PROCEDURE CalculateSum ( p_number1 IN NUMBER,  p_number2 IN NU
 v_sum NUMBER;
 BEGIN
     -- Calculate the sum
-    v_sum := p_number1 + p_number2;
+    v_sum := p_number1 + p_number2; 
 
     -- Display the result
     DBMS_OUTPUT.PUT_LINE('The sum of ' || p_number1 || ' and ' || p_number2 || ' is: ' || v_sum);
