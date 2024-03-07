@@ -23,3 +23,11 @@ BEGIN
         counter := counter + 1;
     END LOOP;
 END;
+====================================================
+for loop 
+declare
+begin
+for  i in reverse 1..10  loop
+dbms_output.put_line('the number of value '|| i);
+end loop; 
+end;
