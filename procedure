@@ -1,0 +1,15 @@
+procedure with for loop insert data into table 
+CREATE OR REPLACE PROCEDURE insert_multiple_employees AS
+BEGIN
+  FOR i IN 1..5 LOOP -- Insert 5 employees, you can change this number as needed
+    INSERT INTO employees1 (employee_id, first_name, last_name, EMAIL, HIRE_DATE)
+    VALUES ( i,'abc' || i, 'def' ||i, '@gmail' ||i, TO_DATE('05-03-2024', 'DD-MM-YYYY') );
+  END LOOP;
+  COMMIT;
+  DBMS_OUTPUT.PUT_LINE('Multiple employees inserted successfully.');
+END;
+
+BEGIN
+  insert_multiple_employees;
+END;
+================================================================================
