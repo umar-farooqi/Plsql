@@ -1,1 +1,14 @@
+simple loop 
+DECLARE
+    counter NUMBER := 0;
+BEGIN
+    LOOP
+        DBMS_OUTPUT.PUT_LINE('Counter: ' || counter);
+        counter := counter + 1;
 
+        -- Exit condition
+        IF counter > 6 THEN
+            EXIT;
+        END IF;
+    END LOOP;
+END;
