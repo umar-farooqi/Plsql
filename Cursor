@@ -84,3 +84,14 @@ BEGIN
     END IF;
     
 END;
+========================================================================================
+declare
+cursor cur_name is 
+select oracle_id , name , job_id , city from oracle;
+begin
+for i in cur_name loop
+dbms_output.put_line('id' || ' - ' ||i.oracle_id ||' name '|| i.name|| ' job '||i.job_id||' city '||i.city);
+end loop;
+exception when others then null;
+
+end;
