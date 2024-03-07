@@ -12,3 +12,14 @@ BEGIN
         END IF;
     END LOOP;
 END;
+==================================================================================
+while loop
+DECLARE
+    counter NUMBER := 1;
+BEGIN
+    WHILE counter <= 5 LOOP
+        -- Execute code here
+        DBMS_OUTPUT.PUT_LINE('Counter: ' || counter);
+        counter := counter + 1;
+    END LOOP;
+END;
