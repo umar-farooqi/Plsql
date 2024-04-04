@@ -31,3 +31,23 @@ for  i in reverse 1..10  loop
 dbms_output.put_line('the number of value '|| i);
 end loop; 
 end;
+=================================================================
+
+BEGIN
+    FOR i IN 11 15 LOOP
+        update oracle set NAME = 'apex' WHERE ORACLE_ID = i;
+    END LOOP;
+    COMMIT;
+END;
+
+DECLARE
+    v_num oracle.oracle_id%TYPE;
+    v_name oracle.name%TYPE;
+BEGIN
+    FOR rec IN (SELECT oracle_id , name FROM oracle) LOOP
+        v_num := rec.oracle_id;
+        v_name :=rec.name;
+        DBMS_OUTPUT.PUT_LINE('Number: ' || v_num || ' -  ' || 'NAME: ' || v_name);
+    END LOOP;
+END;
+
