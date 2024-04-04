@@ -1,0 +1,22 @@
+CREATE OR REPLACE PROCEDURE get_employee_name_company(
+    p_employee_id IN oracle.oracle_id%TYPE,
+    p_employee_name OUT oracle.name%TYPE
+)
+AS
+BEGIN
+    SELECT name INTO p_employee_name
+    FROM oracle
+    WHERE oracle_id = p_employee_id;
+EXCEPTION
+         WHEN NO_DATA_FOUND THEN
+           p_employee_name := 'Employee Not Found';
+END;
+
+
+DECLARE
+    v_employee_name oracle.name%TYPE;
+BEGIN
+    -- Call the procedure with employee_id 2
+    get_employee_name_company(3, v_employee_name);
+    DBMS_OUTPUT.PUT_LINE('Employee Name: ' || v_employee_name);
+END;
