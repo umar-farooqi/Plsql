@@ -1,0 +1,14 @@
+function get_CLIENT_FULL_NAME(p_client_ids varchar2) return varchar2 is
+v_name varchar2(500);
+begin
+select LISTAGG(F_NAME||' '||CASE WHEN GUARDIAN_REALATION IS NULL AND GUARDIAN_F_NAME IS NULL THEN NULL ELSE NVL(GUARDIAN_REALATION,'S/D/W/O') END||' '||GUARDIAN_F_NAME, ', ')
+ into   v_name 
+from   DGMS_MEMBER_REGISTRATION 
+where  ID IN  (SELECT regexp_substr(p_client_ids,'[^:]+', 1, level) FROM DUAL 
+                    connect BY regexp_substr(p_client_ids, '[^:]+', 1, level) is not null)
+                    ORDER BY ID;
+return v_name;
+exception when no_data_found then
+return null;
+
+end;
