@@ -33,3 +33,20 @@ BEGIN
         WHERE LIVING_STATUS = :P173_LIVING_STATUS;
     END IF;
 END;
+============================================================
+Duplicate values not insert in item 
+
+type=function_body(retruning_error_text):
+
+DECLARE
+   l_count NUMBER;
+BEGIN
+   SELECT COUNT(*)
+   INTO l_count
+   FROM DEV_AREA_REGISTRATION
+   WHERE CITY = :P11_CITY;
+
+   IF l_count > 0 THEN 
+      RETURN 'CITY MUST BE UNIQUE';
+   END IF;
+END;
