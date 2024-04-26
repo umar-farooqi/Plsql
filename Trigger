@@ -1,0 +1,24 @@
+create or replace TRIGGER DGMS.DGMS_BOOKING_DOCUMENTS
+  before
+   insert or update or delete ON "DGMS"."DGMS_BOOKING_DOCUMENTS"              
+  for each row
+begin
+    IF INSERTING THEN
+          IF :NEW."ID" IS NULL THEN 
+              SELECT "DGMS_BOOKING_DOCUMENTS_SEQ".nextval 
+              INTO :NEW."ID" 
+              from DUAL; 
+          END IF; 
+          
+              :NEW."ORG_ID"    :=   V('P_ORG_ID');
+              :NEW."CREATED_ON" := localtimestamp;
+              :NEW."CREATED_BY" := nvl(v('APP_USER'),USER);
+           
+    ELSIF UPDATING THEN
+            IF nvl(v('APP_USER'),USER) != 'DGMS' THEN
+              :NEW."UPDATED_ON" := localtimestamp;
+              :NEW."UPDATED_BY" := nvl(v('APP_USER'),USER);
+            END IF;
+    END IF;
+
+end;
