@@ -1,0 +1,65 @@
+DECLARE
+    -- Declare variables to store the values from the query
+                        v_B_T_I NUMBER;
+                        v_PRC NUMBER;
+                        v_TENDY NUMBER;
+                        AMOUNT1 number;
+                        PRC1 NUMBER;
+                        V_PRC1 NUMBER;
+                        V_OUTSTANDING_AMOUNT NUMBER;
+                        V_TENDY1 NUMBER;
+                        BHONTRO NUMBER;
+    
+         CURSOR S1  IS 
+         SELECT 
+         rownum,
+            inst.ID,
+            INST.SCHEDULE_ID, 
+            NVL(INST.DUE_AMOUNT,0) B_T_I,
+            NVL(INST.DUE_AMOUNT,0)-NVL(SUM(rec.RECEIVED_AMT),0) PRC,
+            DUE_DATE
+        FROM 
+                    DGMS_REGISTRY_PAYMENT_SCHEDULE INST
+        LEFT JOIN  DGMS_LAND_INSTALLMENT_RECEIPT rec ON rec.INST_ID = inst.id   
+        WHERE 
+                     INST.SCHEDULE_ID = :SCH_ID
+                     AND      REC.ID IS NULL
+            --AND INST.ID NOT IN (CASE  WHEN REC.INST_ID IS NOT NULL AND REC.INST_STATUS = 'PARTIAL' THEN REC.INST_ID  ELSE 0 END)
+            --   AND INST.ID NOT IN (1133)
+            AND INST.ACTIVE = 'Y'
+        GROUP BY 
+            inst.ID, INST.SCHEDULE_ID, inst.DUE_DATE, NVL(INST.DUE_AMOUNT,0),rownum
+        ORDER BY  
+            rownum ASC;   
+            
+BEGIN
+   SELECT NVL((SELECT NVL(SUM(rec.RECEIVABLE_AMT), 0) PRC
+                                FROM DGMS_REGISTRY_PAYMENT_SCHEDULE INST
+                                JOIN DGMS_LAND_INSTALLMENT_RECEIPT rec ON rec.INST_ID = inst.id   
+                                WHERE INST.SCHEDULE_ID = :SCH_ID
+                                AND INST_STATUS='PARTIAL'
+                                AND INST.ACTIVE = 'Y'
+                                GROUP BY inst.ID, INST.SCHEDULE_ID, inst.DUE_DATE, NVL(INST.DUE_AMOUNT,0), REC.ID 
+                                ), 0) PRC INTO PRC1
+                            FROM DUAL;
+    -- Your SQL query
+                     V_PRC1 :=PRC1;
+                     V_OUTSTANDING_AMOUNT :=:OUTSTANDING_AMOUNT;
+    FOR I IN  S1 
+         
+    LOOP
+    
+                v_B_T_I := I.B_T_I;   -- 9000000
+                v_PRC := I.PRC;         -- 900000  
+                v_TENDY := nvl((v_B_T_I / v_PRC),0);  
+                V_TENDY1  :=NVL((V_OUTSTANDING_AMOUNT/v_B_T_I),0); 
+                BHONTRO :=    (NVL(V_OUTSTANDING_AMOUNT,0) + NVL(V_PRC1,0)) - v_B_T_I    ;      
+                
+               DBMS_OUTPUT.PUT_LINE('BHONTRO'   || I.ID || ': ' || BHONTRO);
+
+
+      --    END IF ;
+    END LOOP;
+    
+END;
+/
