@@ -1,0 +1,77 @@
+DECLARE
+    CURSOR C1 IS SELECT  
+            DR_AMOUNT debit, CR_AMOUNT credit, NARRATIONS Narration,  DEPOSIT_SLIP_NO slip,  CR_ACCOUNT C_ACC,  
+            DR_ACCOUNT D_ACC, TRANSACTION_TYPE,VOUCHER_ID,PAID_DATE,RECEIPT_ID,CHEQUE_NO,CHEQUE_ID,SCHEDULE_ID SCH_ID, RECIEPT_MODE R_MODE,ADVANCE_ID
+    FROM DGMS_VOUCHERS_APPROVAL 
+    WHERE ORG_ID = :P_ORG_ID AND VOUCHER_ID = :P249_VOUCHER_ID_A AND BUSINESS_NATURE = 'DEVELOPER';
+BEGIN
+FOR S IN C1 LOOP
+        ONLY_INSTALLEMNT_HIT_LAND(S.SCH_ID,S.debit,S.RECEIPT_ID,S.PAID_DATE,S.R_MODE);
+                INSERT INTO DGMS_VOUCHER_POST_DETAIL 
+                    (
+                    DR_ACCOUNT,
+                    DR_AMOUNT,
+                    TRANSACTION_TYPE,
+                    NARRATION,
+                    DEPOSIT_SLIP_NO,
+                    POSTED_DATE,
+                    VOUCHER_ID,
+                    CHEQUE_NO,
+                    CHEQUE_ID,
+                    BUSINESS_NATURE
+                    ) 
+                    VALUES
+                    (
+                    S.D_ACC,
+                    S.debit,
+                    S.TRANSACTION_TYPE,
+                    S.Narration,
+                    S.slip,
+                    S.PAID_DATE,
+                    S.VOUCHER_ID,
+                    S.CHEQUE_NO,
+                    S.CHEQUE_ID,
+                    'DEVELOPER'
+                    ); 
+                COMMIT;   
+                INSERT INTO DGMS_VOUCHER_POST_DETAIL 
+                    (
+                    CR_ACCOUNT,
+                    CR_AMOUNT,
+                    TRANSACTION_TYPE,
+                    NARRATION,
+                    DEPOSIT_SLIP_NO,
+                    POSTED_DATE,
+                    VOUCHER_ID,
+                    CHEQUE_NO,
+                    CHEQUE_ID,
+                    BUSINESS_NATURE
+                    ) 
+                    VALUES
+                    (
+                    S.C_ACC,
+                    S.credit,
+                    S.TRANSACTION_TYPE,
+                    S.Narration,
+                    S.slip,
+                    S.PAID_DATE,
+                    S.VOUCHER_ID,
+                    S.CHEQUE_NO,
+                    S.CHEQUE_ID,
+                    'DEVELOPER'
+                    ); 
+                COMMIT;
+            IF S.CHEQUE_ID IS NOT NULL THEN
+                UPDATE DGMS_CHEQUE_BOOK SET DE_ACTIVATE = 'Y'  WHERE DE_ACTIVATE = 'N' AND  ID = S.CHEQUE_ID;
+                COMMIT;
+            END IF; 
+            IF S.R_MODE = 'LFA - IN KIND' THEN
+                UPDATE DGMS_ADVANCE_DETAILS SET APPROVAL_STATUS = 'ACCEPTED',ACTIVE = 'Y', VOUCHER_ID = :P249_VOUCHER_ID_A WHERE ID = S.ADVANCE_ID;
+                COMMIT;
+            END IF;
+END LOOP;            
+                UPDATE DGMS_VOUCHERS_APPROVAL SET APPROVAL_STATUS = 'LPV FINAL APPROVED', APPROVED_ON = SYSDATE , APPROVED_BY = :APP_USER  WHERE VOUCHER_ID = :P249_VOUCHER_ID_A AND BUSINESS_NATURE = 'DEVELOPER'; 
+                COMMIT;
+                UPDATE DGMS_DEMAND_ORDER SET LPV_STATUS = 'APPROVED' WHERE LPV_STATUS = 'AUDIT APPROVED' AND SCHEDULE_ID = :P249_SCH_ID AND ID = :P249_DEMAND_ID;
+                COMMIT;
+END;
