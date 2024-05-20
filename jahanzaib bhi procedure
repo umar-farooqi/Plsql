@@ -63,3 +63,212 @@ BEGIN
     
 END;
 /
+====================================================================================================================================================================
+
+CREATE OR REPLACE PROCEDURE DGMS.ONLY_INSTALLEMNT_HIT_LAND (
+                                                    SCH_ID    NUMBER,
+                                                    amount   NUMBER, 
+                                                    V_REC_NO NUMBER, 
+                                                    V_PAID_DATE DATE, 
+                                                    V_PAYMENT_MODE VARCHAR2 )
+AS
+                            OUTSTAND_AMT NUMBER := AMOUNT ;
+                            v_B_T_I NUMBER;
+                            v_PRC NUMBER;
+                            v_TENDY NUMBER;
+                            AMOUNT1 number;
+                            PRC1 NUMBER;
+                            ID1 NUMBER;
+                            v_TENDY1 number;
+                            BHONTRO NUMBER;
+                            BHONTROOOOOOOO NUMBER;
+            ------------------------------------- CURSOR S1--------------------------------------------------------
+                CURSOR S1  IS  
+                SELECT    
+                                rownum,
+                                ID,
+                                SCHEDULE_ID,
+                                B_T_I,
+                                PRC,
+                                DUE_DATE
+       FROM(
+                  SELECT 
+                            rownum, 
+                            inst.ID,
+                            INST.SCHEDULE_ID, 
+                            NVL(INST.DUE_AMOUNT,0) B_T_I,
+                            NVL(INST.DUE_AMOUNT,0)-NVL(SUM(rec.RECEIVED_AMT),0) PRC,
+                            DUE_DATE
+        FROM 
+                    DGMS_REGISTRY_PAYMENT_SCHEDULE INST
+        LEFT JOIN  DGMS_LAND_INSTALLMENT_RECEIPT rec ON rec.INST_ID = inst.id   
+        WHERE 
+                     INST.SCHEDULE_ID = SCH_ID
+               AND      REC.ID IS NULL
+            --AND INST.ID NOT IN (CASE  WHEN REC.INST_ID IS NOT NULL AND REC.INST_STATUS = 'PARTIAL' THEN REC.INST_ID  ELSE 0 END)
+            --   AND INST.ID NOT IN (1133)
+            AND INST.ACTIVE = 'Y'
+            GROUP BY  inst.ID, INST.SCHEDULE_ID, inst.DUE_DATE, NVL(INST.DUE_AMOUNT,0),rownum
+              order by DUE_DATE asc); 
+
+BEGIN
+        -------------------------------------------PARTIAL PAYMENT INTO PRC1--------------------------------------------------
+                            SELECT NVL((SELECT NVL(SUM(rec.RECEIVABLE_AMT), 0) PRC
+                                FROM DGMS_REGISTRY_PAYMENT_SCHEDULE INST
+                                JOIN DGMS_LAND_INSTALLMENT_RECEIPT rec ON rec.INST_ID = inst.id   
+                                WHERE INST.SCHEDULE_ID = SCH_ID
+                                AND INST_STATUS='PARTIAL'
+                                AND INST.ACTIVE = 'Y'
+                                GROUP BY inst.ID, INST.SCHEDULE_ID, inst.DUE_DATE, NVL(INST.DUE_AMOUNT,0), REC.ID 
+                                ), 0)PRC  INTO PRC1
+                            FROM DUAL;
+        -----------------------------------LOOP----------------------------------------------------------         
+        FOR I IN S1 LOOP 
+                                v_B_T_I := I.B_T_I;     
+                                v_PRC := I.PRC;   
+                    v_TENDY := nvl((v_B_T_I / v_PRC),0);  
+                    v_TENDY1 := nvl((OUTSTAND_AMT / v_PRC),0);  
+                    --BHONTROOOOOOOO := NVL((v_B_T_I),0)   - (NVL(V_OUTSTANDING_AMOUNT,0) + NVL(PRC1,0))     ; 
+       ----------------------------------FULL PAYMENT ------------------------------------------------           
+               IF    i.ROWNUM=1 AND  PRC1=0  AND v_TENDY1=1 THEN  
+               
+                INSERT INTO DGMS_LAND_INSTALLMENT_RECEIPT_HEADER (
+                                                            ID,
+                                                            SCHEDULE_ID,
+                                                            RECEIVED_AMOUNT,
+                                                            PAID_DATE,
+                                                            PAYMENT_MODE)
+                                      VALUES ( V_REC_NO,
+                                                       SCH_ID,
+                                                       OUTSTAND_AMT,
+                                                       V_PAID_DATE,
+                                                       V_PAYMENT_MODE);
+                            
+                INSERT INTO DGMS_LAND_INSTALLMENT_RECEIPT
+                                                          (
+                                                          INST_ID,
+                                                          RECEIVED_AMT,
+                                                          RECEIVABLE_AMT,
+                                                          SCHEDULE_ID,
+                                                          INST_STATUS,
+                                                          RECEIPT_ID
+                                                          )
+                                              VALUES(
+                                                     I.ID,
+                                                     I.PRC,
+                                                     0,
+                                                     SCH_ID,
+                                                     'FULL',
+                                                    V_REC_NO
+                                                     );       
+                                        COMMIT;       
+         ----------------------------------PARTIAL PAYMENT ---------------------------------------------------------------
+                 ELSIF     i.ROWNUM=1  AND PRC1= 0  AND   V_TENDY1 < 5
+         
+        THEN   
+                     --  BHONTRO :=    (NVL(outstand_amt,0) + NVL(PRC1,0)) - v_B_T_I    ;   
+                        BHONTRO := NVL((v_B_T_I),0)   - (NVL(outstand_amt,0) + NVL(PRC1,0)) ;        --- 500000+0 -700000       
+                    AMOUNT1 := (NVL(PRC1,0)  + NVL(outstand_amt,0));     
+                                                  INSERT INTO DGMS_LAND_INSTALLMENT_RECEIPT_HEADER (
+                                                            ID,
+                                                            SCHEDULE_ID,
+                                                            RECEIVED_AMOUNT,
+                                                            PAID_DATE,
+                                                            PAYMENT_MODE)
+                                          VALUES ( V_REC_NO,
+                                                           SCH_ID,
+                                                            v_B_T_I,
+                                                           V_PAID_DATE,
+                                                           V_PAYMENT_MODE || 'PARTINST');
+         
+                                           INSERT INTO DGMS_LAND_INSTALLMENT_RECEIPT
+                                                                          (
+                                                                              INST_ID,
+                                                                              RECEIVED_AMT,
+                                                                              RECEIVABLE_AMT,
+                                                                              SCHEDULE_ID,
+                                                                              INST_STATUS,
+                                                                              RECEIPT_ID
+                                                                          )
+                                                          VALUES(
+                                                                         I.ID,
+                                                                         AMOUNT1,
+                                                                         BHONTRO,
+                                                                         SCH_ID,
+                                                                         'PARTIAL',
+                                                                         V_REC_NO
+                                                                      );                 
+             
+         --------------------------------------------------------------------------------------------------------------------------
+        ELSIF     i.ROWNUM=1  AND PRC1<> 0  AND   V_TENDY1 < 1000
+         
+        THEN   
+                    BHONTRO :=    (NVL(outstand_amt,0) + NVL(PRC1,0)) - v_B_T_I    ;           --- 93000000+70000 -700000   93000000-70000 -700000
+                           
+                    AMOUNT1 := (NVL(PRC1,0)  + NVL(outstand_amt,0));   
+                    
+                    INSERT INTO DGMS_LAND_INSTALLMENT_RECEIPT_HEADER (
+                                                            ID,
+                                                            SCHEDULE_ID,
+                                                            RECEIVED_AMOUNT,
+                                                            PAID_DATE,
+                                                            PAYMENT_MODE)
+                                          VALUES ( V_REC_NO,
+                                                           SCH_ID,
+                                                            v_B_T_I,
+                                                           V_PAID_DATE,
+                                                           V_PAYMENT_MODE || 'PART');
+                                                           
+                         UPDATE DGMS_LAND_INSTALLMENT_RECEIPT
+                                    SET INST_STATUS='FULL',
+                                            RECEIVABLE_AMT=0   
+                                    WHERE 
+                                            SCHEDULE_ID =SCH_ID
+                                    AND INST_STATUS='PARTIAL';
+                                    --AND ID=;                           
+                                          COMMIT;
+                         IF        BHONTRO=0 THEN 
+                                                INSERT INTO DGMS_LAND_INSTALLMENT_RECEIPT
+                                                                          (
+                                                                              INST_ID,
+                                                                              RECEIVED_AMT,
+                                                                              RECEIVABLE_AMT,
+                                                                              SCHEDULE_ID,
+                                                                              INST_STATUS,
+                                                                              RECEIPT_ID
+                                                                          )
+                                                          VALUES(
+                                                                         I.ID,
+                                                                         AMOUNT1,
+                                                                         BHONTRO,
+                                                                         SCH_ID,
+                                                                         'FULL',
+                                                                         V_REC_NO
+                                                                      );   
+                       ELSIF    BHONTRO<>0 THEN 
+                                     ---AMOUNT1 :=                        (NVL(PRC1,0)  + NVL(outstand_amt,0));  ---3300000+700000 =
+                                    INSERT INTO DGMS_LAND_INSTALLMENT_RECEIPT
+                                                                          (
+                                                                              INST_ID,
+                                                                              RECEIVED_AMT,
+                                                                              RECEIVABLE_AMT,
+                                                                              SCHEDULE_ID,
+                                                                              INST_STATUS,
+                                                                              RECEIPT_ID
+                                                                          )
+                                                          VALUES(
+                                                                         I.ID,
+                                                                         outstand_amt,
+                                                                         BHONTRO,
+                                                                         SCH_ID,
+                                                                         'PARTIAL',
+                                                                         V_REC_NO
+                                                                      );                           
+                                              END IF;          
+
+        END IF;
+        
+
+       COMMIT;    
+       END LOOP;
+END;
