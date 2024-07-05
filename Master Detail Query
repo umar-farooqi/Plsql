@@ -20,3 +20,23 @@ end;
 note: jb ap ki primary key pr trigger lga ho ga to ap ne pk nai deni . agr trigger na lga hoa phir pk deni ha ,
 2nd ) ap ki jb primary key na hoi to ap ne rowid deni ha other wise rowid ki jga ap ne primary key deni ha   Master detail link code ;
 ======================
+create or replace trigger "DGMS_BANKS_MST_T1"
+BEFORE
+insert or update or delete on "DGMS_BANKS_MST"
+for each row
+begin
+   IF INSERTING THEN
+      IF :NEW.BANK_ID IS NULL THEN 
+         SELECT NVL(MAX(A.BANK_ID),0) + 1 INTO :NEW.BANK_ID FROM DGMS_BANKS_MST A;
+      END IF; 
+      
+      :NEW.ORG_ID    := V('P_ORG_ID');
+      :NEW.CREATED_ON := localtimestamp;
+      :NEW.CREATED_BY := NVL(V('APP_USER'), USER);
+   ELSIF UPDATING THEN
+      IF NVL(V('APP_USER'), USER) != 'DGMS' THEN
+         :NEW.UPDATED_ON := localtimestamp;
+         :NEW.UPDATED_BY := NVL(V('APP_USER'), USER);
+      END IF;
+   END IF;
+end;
