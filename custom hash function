@@ -1,0 +1,14 @@
+create or replace FUNCTION CUSTOM_HASH
+                (P_USERNAME IN VARCHAR2, 
+                 P_PASSWORD IN VARCHAR2) 
+    RETURN 
+                    VARCHAR2 
+    IS
+                   L_PASSWORD VARCHAR2(4000);
+                   L_SALT VARCHAR2(4000) := 'XV1MH24EC1IHDCQHSS6XQ6QTJSANT3';
+    BEGIN
+                L_PASSWORD := UTL_RAW.CAST_TO_RAW(DBMS_OBFUSCATION_TOOLKIT.MD5(INPUT_STRING => P_PASSWORD || SUBSTR(L_SALT,10,13) ||
+                P_USERNAME || SUBSTR(L_SALT, 4,10)));
+   RETURN L_PASSWORD;
+   
+    END;
