@@ -1,6 +1,6 @@
 create or replace FUNCTION number_to_words(p_number IN NUMBER)
    RETURN VARCHAR2
-IS    
+IS
    TYPE t_words IS TABLE OF VARCHAR2(255);
    l_units t_words := t_words('Zero', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine');
    l_tens t_words := t_words('Ten', 'Eleven', 'Twelve', 'Thirteen', 'Fourteen', 'Fifteen', 'Sixteen', 'Seventeen', 'Eighteen', 'Nineteen');
