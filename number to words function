@@ -1,0 +1,72 @@
+create or replace FUNCTION number_to_words(p_number IN NUMBER)
+   RETURN VARCHAR2
+IS
+   TYPE t_words IS TABLE OF VARCHAR2(255);
+   l_units t_words := t_words('Zero', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine');
+   l_tens t_words := t_words('Ten', 'Eleven', 'Twelve', 'Thirteen', 'Fourteen', 'Fifteen', 'Sixteen', 'Seventeen', 'Eighteen', 'Nineteen');
+   l_tens_prefix t_words := t_words('Twenty', 'Thirty', 'Forty', 'Fifty', 'Sixty', 'Seventy', 'Eighty', 'Ninety');
+   l_hundred VARCHAR2(255) := 'Hundred';
+   l_thousand VARCHAR2(255) := 'Thousand';
+   l_million VARCHAR2(255) := 'Million';
+   l_billion VARCHAR2(255) := 'Billion';
+   l_trillion VARCHAR2(255) := 'Trillion';
+   l_result VARCHAR2(4000);
+   l_number NUMBER := p_number;
+   
+   FUNCTION convert_chunk(p_chunk IN NUMBER, p_is_last_chunk IN BOOLEAN) RETURN VARCHAR2 IS
+      l_chunk_result VARCHAR2(2000);
+   BEGIN
+      IF p_chunk < 10 THEN
+         l_chunk_result := l_units(p_chunk + 1);
+      ELSIF p_chunk < 20 THEN
+         l_chunk_result := l_tens(p_chunk - 10 + 1);
+      ELSIF p_chunk < 100 THEN
+         l_chunk_result := l_tens_prefix(TRUNC(p_chunk / 10) - 1) || 
+                           CASE WHEN MOD(p_chunk, 10) > 0 THEN ' ' || l_units(MOD(p_chunk, 10) + 1) ELSE '' END;
+      ELSIF p_chunk < 1000 THEN
+         l_chunk_result := l_units(TRUNC(p_chunk / 100) + 1) || ' ' || l_hundred || 
+                           CASE WHEN MOD(p_chunk, 100) > 0 THEN ' ' || convert_chunk(MOD(p_chunk, 100), FALSE) ELSE '' END;
+      ELSE
+         l_chunk_result := convert_chunk(TRUNC(p_chunk / 1000), FALSE) || ' ' || l_thousand ||
+                           CASE WHEN MOD(p_chunk, 1000) > 0 THEN ' ' || convert_chunk(MOD(p_chunk, 1000), FALSE) ELSE '' END;
+      END IF;
+
+      RETURN l_chunk_result;
+   END;
+
+BEGIN
+   -- Handle zero
+   IF l_number = 0 THEN
+      RETURN l_units(1); -- Zero
+   END IF;
+
+   -- Handle negative numbers
+   IF l_number < 0 THEN
+      RETURN 'Negative ' || number_to_words(ABS(l_number));
+   END IF;
+
+   -- Process billions, millions, thousands
+   IF l_number >= 1000000000 THEN
+      l_result := convert_chunk(TRUNC(l_number / 1000000000), FALSE) || ' ' || l_billion;
+      l_number := MOD(l_number, 1000000000);
+   END IF;
+   
+   IF l_number >= 1000000 THEN
+      l_result := l_result || ' ' || convert_chunk(TRUNC(l_number / 1000000), FALSE) || ' ' || l_million;
+      l_number := MOD(l_number, 1000000);
+   END IF;
+
+   IF l_number >= 1000 THEN
+      l_result := l_result || ' ' || convert_chunk(TRUNC(l_number / 1000), FALSE) || ' ' || l_thousand;
+      l_number := MOD(l_number, 1000);
+   END IF;
+
+   -- Handle remaining number (less than thousand)
+   l_result := l_result || ' ' || convert_chunk(l_number, TRUE);
+
+   RETURN TRIM(l_result) || ' Only';
+EXCEPTION
+   WHEN OTHERS THEN
+      RETURN 'Error in conversion';
+END number_to_words;
+/
