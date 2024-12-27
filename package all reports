@@ -1,0 +1,1098 @@
+CREATE OR REPLACE PACKAGE BODY DEV.AB_GENERAL_PACKAGE AS
+     
+       --------------------------------1-------------------GRN +OPENING STOCK IN WARD -----------------------------------------------------------
+       FUNCTION GRN_STOCK_INWARD(P_ORG_ID NUMBER) 
+                RETURN GRN_STOCK_INWARD_TYPE PIPELINED IS
+                V_GRN_STOCK_INWARD GRN_STOCK_INWARD_OBJECT;
+    BEGIN
+        FOR GS IN (
+            ----------------------------------------------------------------
+    WITH TAX_POLICY AS (
+                SELECT 
+                    POLICY_ID,
+                    FED,
+                    GST,
+                    AIT 
+                FROM
+                    AB_SETUP_POLICY_REGISTERED SPR
+                WHERE
+                    STATUS = 'Y'
+                    AND ORG_ID=P_ORG_ID
+)
+,PURCHASE_ORDER AS(
+                SELECT
+                          C.*,
+                          NVL(TOTAL_AMOUNT,0)/NVL(NO_BAGS,0) PER_BAGS
+                FROM(
+                SELECT
+                                PO_ID,
+                                DET_ID POD_ID,
+                                COMPANY_ORDER_NO,
+                                TRANSACTION_DATE,
+                                PURCHASING_TYPE,
+                                ITEM_ID,
+                                ITEM_NAME,
+                                NO_BAGS,
+                            CASE
+                                        WHEN AIT IS NULL THEN     ROUND(AFTER_GST_VALUE,0)
+                                        ELSE   ROUND(NVL(AFTER_GST_VALUE,0) * NVL(AIT,0)/100)+ROUND(NVL(AFTER_GST_VALUE,0))
+                                END TOTAL_AMOUNT
+                FROM (
+                SELECT
+                            POR.DET_ID ,
+                            POR.PO_ID,
+                            TO_CHAR(PO.TRANSACTION_DATE, 'DD-MON-YYYY') AS TRANSACTION_DATE,
+                            PO.COMPANY_ORDER_NO,
+                            PO.PURCHASING_TYPE,
+                            ITM.ITEM_ID,
+                            ITM.ITEM_NAME||' ('|| ITM.PACKING_SIZE || ' '|| ITM.UNIT || ' '|| ITM.PACKING || ')' AS ITEM_NAME,
+                            POR.CHANGE_BAGS NO_BAGS,
+                            CASE 
+                                    WHEN GST IS NULL THEN NVL(POR.NET_AMOUNT,0)+(NVL(FED,0) * NVL(POR.NET_AMOUNT, 0) / 100) 
+                                    WHEN  FED IS NULL THEN ((NVL(POR.NET_AMOUNT, 0) * NVL(GST,0) )/100)  + NVL(POR.NET_AMOUNT,0)+(NVL(FED,0) * NVL(POR.NET_AMOUNT, 0) / 100) 
+                                    ELSE ((NVL(POR.NET_AMOUNT, 0) + (FED * NVL(POR.NET_AMOUNT, 0) / 100)) * NVL(GST, 0) / 100) +  NVL(POR.NET_AMOUNT,0)+(NVL(FED,0) * NVL(POR.NET_AMOUNT, 0) / 100) 
+                            END AFTER_GST_VALUE,
+                            AIT,
+                            POR.TAX_POLICY_ID,
+                            DEAL_POLICY_ID
+                FROM 
+                                         AB_PO_DEMAND_REQ_DET DRD
+                          JOIN   AB_ITEMS_MASTER ITM ON ITM.ITEM_ID = DRD.ITEM_ID
+                          JOIN   AB_PO_PURCHASE_ORDER_DET POR ON POR.DEMAND_DET_ID = DRD.DET_ID
+                          JOIN   AB_LOOKUP_DETAIL LD ON LD.DET_ID = ITM.PRODUCT_CATEGORY_ID
+                          JOIN   AB_PO_PURCHASE_ORDER PO ON PO.PO_ID=POR.PO_ID
+                LEFT  JOIN   TAX_POLICY TP ON TP.POLICY_ID = POR.TAX_POLICY_ID
+          WHERE
+                           POR.ORG_ID=P_ORG_ID
+                AND  PO.PO_TYPE='PURCHASE ORDER'
+                ORDER BY 
+                         POR.DET_ID DESC)
+)C
+)
+,LOV_DATA AS(
+      SELECT
+                PO.PO_ID,
+                MAX(CASE WHEN REG.REG_TYPE = 'COMPANY' AND REG.SR_ID = PO.COMPANY_ID THEN REG.REG_NAME END) AS COMPANY_NAME,
+                MAX(CASE WHEN (REG.REG_TYPE = 'DEALER' OR REG.REG_TYPE = 'VENDOR' OR REG.REG_TYPE = 'CUSTOMER REGISTRATION') AND REG.SR_ID = PO.VENDOR_ID THEN COALESCE(REG.PARTY_NAME, REG.REG_NAME) END) AS VENDOR_NAME
+      FROM
+                    AB_PO_PURCHASE_ORDER PO
+          JOIN  AB_SETUP_REGISTRATION REG ON REG.SR_ID IN (PO.COMPANY_ID, PO.VENDOR_ID)
+     WHERE
+                    PO.ORG_ID=P_ORG_ID
+         AND  PO.PO_TYPE='PURCHASE ORDER'
+         GROUP BY
+                    PO.PO_ID
+)
+,PURCHASE_INOICE AS(
+            SELECT
+                   INV.IDS PO_ID,
+                   INV.PO_ID INVOICE_NO,
+                   INVD.DET_ID INVOICED_NO,
+                   INV.COMPANY_INVOICE_NUMBER COMPANY_INV_NO,
+                   TO_CHAR(INV.TRANSACTION_DATE, 'DD-MON-YYYY') INV_DATE,
+                   INVD.IDS POD_ID,
+                   CHANGE_BAGS INV_BAGS
+            FROM
+                            AB_PO_PURCHASE_ORDER INV 
+                 JOIN  AB_PO_PURCHASE_ORDER_DET INVD ON INVD.PO_ID=INV.PO_ID
+                 JOIN  PURCHASE_ORDER PO ON PO.POD_ID=INVD.IDS
+            WHERE
+                       INV.ORG_ID=P_ORG_ID
+              AND INV.PO_TYPE='PURCHASE INVOICE'
+ )
+,TOTAL_DATA AS(
+    SELECT
+                    INV.PO_ID,
+                    INVOICE_NO,
+                    INVOICED_NO,
+                    COMPANY_ORDER_NO,
+                    INV_DATE,
+                    TRANSACTION_DATE,
+                    PURCHASING_TYPE,
+                    COMPANY_NAME,
+                    VENDOR_NAME,
+                    COMPANY_INV_NO,
+                    ITEM_ID,
+                    ITEM_NAME,
+                    INV_BAGS,
+                    PER_BAGS,
+                    (INV_BAGS*PER_BAGS) TOTAL_AMOUNT
+    FROM
+                        PURCHASE_ORDER PO
+             JOIN  PURCHASE_INOICE INV ON INV.POD_ID=PO.POD_ID
+    LEFT JOIN  LOV_DATA LOV ON LOV.PO_ID=PO.PO_ID
+)
+,LOGISTIC_DETAIL AS(
+                SELECT
+                         LOD.LO_DET_ID LOD_ID,
+                          GRND.LO_DET_ID GRND_ID,
+                        LO.TRANSPORT_NAME ||' ('||LO.VEHICLE_NO||') '||LO.BILTY_NO||' - '||LO.DRIVER_NAME TRANSPORT_NAME,
+                        LD.LOOKUP_DET_NAME  TRANSPORT_TYPE
+                FROM 
+                               AB_LOGISTICS_INFO_DET LOD
+                      JOIN AB_LOGISTICS_INFO LO ON LO.LO_ID=LOD.LO_ID
+                      JOIN AB_LOGISTICS_INFO_DET GRND ON GRND.IDS=LOD.LO_DET_ID
+                       AND GRND.DET_TYPE='PO GRN DET'
+            LEFT JOIN  AB_LOOKUP_DETAIL LD ON LD.DET_ID=LO.TRANSPORT_TYPE
+             WHERE
+                  LOD.DET_TYPE='PO LOGISTIC DET'
+                 AND LO.ORG_ID=P_ORG_ID
+ )
+    SELECT
+               C.PO_ID,
+               C.GRND_ID ,
+               COMPANY_ORDER_NO,
+               PURCHASING_TYPE,
+               VENDOR_NAME,
+               NVL(COMPANY_INV_NO,NULL) COMPANY_INV_NO,
+               NVL(INV_DATE,NULL)INV_DATE,
+               C.WAREHOUSE_NAME,
+               WAREHOUSE_ID,
+               ITEM_ID,
+               ITEM_NAME,
+               GRN_BAGS,
+               PER_BAGS,
+               DET_TYPE,
+               CREATED_ON,
+               TRANSPORT_NAME,
+               TRANSPORT_TYPE
+    FROM(
+    SELECT
+                PO.PO_ID,
+                GRND.LO_DET_ID GRND_ID,
+                PO.COMPANY_ORDER_NO,
+                PO.PURCHASING_TYPE ||' ('|| 'GRN Stock'||')' PURCHASING_TYPE ,
+                VENDOR_NAME,
+                COMPANY_INV_NO,
+                INV_DATE,
+                PO.ITEM_ID,
+                PO.ITEM_NAME,
+                NVL(GRND.RECEIVED_BAGS,0) GRN_BAGS,
+               PER_BAGS,
+                NVL(PO.PER_BAGS,0) *NVL(GRND.RECEIVED_BAGS,0) TOTAL_AMOUNT,
+                'GRN Stock' DET_TYPE ,
+                REG_NAME WAREHOUSE_NAME,
+                GRND.WAREHOUSE_ID,
+                GRND.CREATED_ON
+    FROM
+                            TOTAL_DATA PO
+                JOIN   AB_LOGISTICS_INFO_DET LOD ON LOD.INVOICE_NO=PO.INVOICED_NO 
+                JOIN   AB_LOGISTICS_INFO LO ON LO.LO_ID=LOD.LO_ID
+                JOIN   AB_LOOKUP_DETAIL LD ON LD.DET_ID=LO.TRANSPORT_TYPE
+                JOIN   AB_LOGISTICS_INFO_DET  GRND ON GRND.IDS=LOD.LO_DET_ID
+                JOIN   AB_LOGISTICS_INFO GRN ON GRN.LO_IDS = LO.LO_ID
+                AND   GRN.LO_ID=GRND.LO_ID
+                JOIN   AB_SETUP_REGISTRATION WAR ON WAR.SR_ID=GRND.WAREHOUSE_ID
+    WHERE
+                   LOD.ORG_ID=P_ORG_ID
+         AND  LD.DET_ID=351
+    UNION ALL
+        SELECT
+                PO.PO_ID,
+                GRND.LO_DET_ID GRND_ID,
+                PO.COMPANY_ORDER_NO,
+                PO.PURCHASING_TYPE ||' ('|| 'GRN Stock'||')' PURCHASING_TYPE ,
+                VENDOR_NAME,
+                COMPANY_INV_NO,
+                INV_DATE,
+                PO.ITEM_ID,
+                PO.ITEM_NAME,
+                NVL(GRND.RECEIVED_BAGS,0) GRN_BAGS,
+                PER_BAGS,
+                NVL(PO.PER_BAGS,0) *NVL(GRND.RECEIVED_BAGS,0) TOTAL_AMOUNT,
+                'GRN Stock' DET_TYPE ,
+                REG_NAME WAREHOUSE_NAME,
+                GRND.WAREHOUSE_ID,
+                GRND.CREATED_ON
+    FROM
+                            TOTAL_DATA PO
+                JOIN   AB_LOGISTICS_INFO_DET LOD ON LOD.INVOICE_NO=PO.INVOICED_NO 
+                JOIN  AB_LOGISTICS_INFO LO ON LO.LO_ID=LOD.LO_ID
+                JOIN  AB_LOOKUP_DETAIL LD ON LD.DET_ID=LO.TRANSPORT_TYPE
+                JOIN   AB_LOGISTICS_INFO FRE ON FRE.LO_IDS=LO.LO_ID
+                JOIN   AB_LOGISTICS_INFO_DET  GRND ON GRND.IDS=LOD.LO_DET_ID
+                JOIN   AB_LOGISTICS_INFO GRN ON GRN.LO_IDS = FRE.LO_ID
+                AND    GRN.LO_ID=GRND.LO_ID
+                JOIN   AB_SETUP_REGISTRATION WAR ON WAR.SR_ID=GRND.WAREHOUSE_ID
+    WHERE
+                       LO.ORG_ID=P_ORG_ID
+            AND  LD.DET_ID=350
+   UNION ALL
+    SELECT
+              PO.PO_ID,
+              POD.DET_ID GRND_ID,
+              TO_CHAR(POD.CO_NO) COMPANY_ORDER_NO ,
+              POD.CO_TYPE||' ('|| 'Opening Stock'||')' PURCHASING_TYPE,
+              MAX(CASE WHEN ASR.REG_TYPE = 'VENDOR' AND ASR.SR_ID = POD.CO_VENDOR_ID THEN ASR.PARTY_NAME END) AS VENDOR_NAME,
+              NULL COMPANY_INV_NO,
+              NULL INV_DATE,
+              PO.ITEM_IDD ITEM_ID,
+              IM.ITEM_NAME||' ('|| IM.PACKING_SIZE || ' '|| IM.UNIT || ' '|| IM.PACKING || ')' ITEM_NAME, 
+              POD.CHANGE_BAGS OPENING_BAGS, 
+              POD.RATE PER_BAGS ,
+              POD.NET_AMOUNT,
+              'Opening Stock'DET_TYPE ,
+              MAX(CASE WHEN ASR.REG_TYPE = 'WAREHOUSE' AND ASR.SR_ID = POD.WAREHOUSE_ID THEN ASR.REG_NAME END) AS WAREHOUSE_NAME,
+              POD.WAREHOUSE_ID,
+              POD.CREATED_ON
+   FROM 
+                  AB_PO_PURCHASE_ORDER PO
+        JOIN AB_ITEMS_MASTER IM ON IM.ITEM_ID = PO.ITEM_IDD
+        JOIN AB_PO_PURCHASE_ORDER_DET POD  ON POD.PO_ID = PO.PO_ID
+        JOIN AB_SETUP_REGISTRATION ASR ON ASR.SR_ID IN(POD.CO_AGENCY_ID,POD.CO_VENDOR_ID,POD.WAREHOUSE_ID)
+    WHERE 
+                    PO_TYPE = 'OPENING PRODUCT'
+            AND  PO.ORG_ID = P_ORG_ID
+   GROUP BY 
+              PO.PO_ID,
+              POD.DET_ID ,
+              PO.COMPANY_ORDER_NO,
+              POD.CO_TYPE,
+              PO.ITEM_IDD ,
+              IM.ITEM_NAME||' ('|| IM.PACKING_SIZE || ' '|| IM.UNIT || ' '|| IM.PACKING || ')', 
+              POD.CHANGE_BAGS   , 
+              POD.RATE  ,
+              POD.NET_AMOUNT,
+              POD.WAREHOUSE_ID,
+              TO_CHAR(POD.CO_NO),
+              POD.CREATED_ON
+    ORDER BY
+         PO_ID DESC )C
+    LEFT JOIN LOGISTIC_DETAIL LOD ON LOD.GRND_ID=C.GRND_ID
+       
+     ORDER BY
+           GRND_ID DESC     
+            ----------------------------------------------------------------
+        ) LOOP
+            V_GRN_STOCK_INWARD := GRN_STOCK_INWARD_OBJECT(
+                GS.PO_ID,
+                GS.GRND_ID,
+                GS.COMPANY_ORDER_NO,
+                GS.PURCHASING_TYPE,
+                GS.VENDOR_NAME,
+                GS.COMPANY_INV_NO,
+                GS.INV_DATE,
+                GS.WAREHOUSE_NAME,
+                GS.WAREHOUSE_ID,
+                GS.ITEM_ID,
+                GS.ITEM_NAME,
+                GS.GRN_BAGS,
+                GS.PER_BAGS,
+                GS.DET_TYPE,
+                GS.CREATED_ON,
+                GS.TRANSPORT_NAME,
+                GS.TRANSPORT_TYPE
+            );
+            PIPE ROW (V_GRN_STOCK_INWARD);
+        END LOOP;
+
+        RETURN;
+    END GRN_STOCK_INWARD;
+-------------------2--------------AMANAT IN-WARD REPORT--------------------------------
+        FUNCTION AMANAT_INWARD(P_ORG_ID NUMBER) 
+                RETURN AMANAT_INWARD_TYPE PIPELINED IS
+                V_AMANAT_INWARD AMANAT_INWARD_OBJECT;
+    BEGIN
+        FOR AMT IN (
+            ----------------------------------------------------------------
+    WITH  LOV_DATE AS(
+                              SELECT                  
+                                    POD.DET_ID AMTD_ID,
+                                    POD.WAREHOUSE_ID,
+                                    MAX(CASE WHEN SR.REG_TYPE = 'WAREHOUSE' AND SR.SR_ID = POD.WAREHOUSE_ID THEN SR.REG_NAME END) AS WAREHOUSE_NAME,
+                                    MAX(CASE WHEN SR.REG_TYPE = 'COMPANY' AND SR.SR_ID = PO.COMPANY_ID THEN SR.REG_NAME END) AS COMPANY_NAME,
+                                    MAX(CASE WHEN SR.REG_TYPE = 'CUSTOMER REGISTRATION' AND SR.SR_ID = PO.CUSTOMER_ID THEN SR.REG_NAME END) AS PARTY_NAME,
+                                    TO_CHAR(PO.CREATED_ON, 'DD-MON-YYYY') AS CREATED_ON
+                              FROM
+                                              AB_PO_PURCHASE_ORDER PO
+                                   JOIN  AB_PO_PURCHASE_ORDER_DET POD ON POD.PO_ID=PO.PO_ID
+                                  JOIN   AB_SETUP_REGISTRATION SR ON SR.SR_ID IN (POD.WAREHOUSE_ID,PO.CUSTOMER_ID,PO.COMPANY_ID)
+                             WHERE
+                                   PO.ORG_ID=P_ORG_ID
+               GROUP BY
+                            POD.DET_ID,
+                            PO.CREATED_ON,
+                            POD.WAREHOUSE_ID
+    )   
+    , LOGSITC_DETAIL AS(
+           SELECT
+                        LO.LO_ID,
+                        LO.PO_ID AMANAT_ID,
+                        ASR.REG_NAME || ' - VEHICLE# ' || LO.VEHICLE_NO || ' - BILTY# ' || LO.BILTY_NO || ' - ' || LO.DRIVER_NAME AS TRANSPORTER_INFO,
+                        ALD.LOOKUP_DET_NAME AS TRANSPORT_TYPEE
+            FROM
+                           AB_LOGISTICS_INFO LO
+                JOIN  AB_SETUP_REGISTRATION ASR ON ASR.SR_ID = LO.TRANSPORT_NAME
+                JOIN  AB_LOOKUP_DETAIL ALD ON ALD.DET_ID = LO.TRANSPORT_TYPE
+            WHERE
+                     LO.ORG_ID=P_ORG_ID
+            AND LO.LO_TYPE = 'AMANAT LOGISTIC'
+            AND LO.STATUS='Y'
+    ) 
+    ,FREIGHT_DETAIL AS(
+            SELECT
+                        FRE.LO_IDS FRE_ID,
+                        FREIGHT_CHIT,
+                        FREIGHT_TEH,
+                        FREIGHT_COMMISION,
+                        FREIGHT_AMOUNT
+            FROM
+                             AB_LOGISTICS_INFO FRE
+            WHERE
+                     FRE.ORG_ID=P_ORG_ID
+            AND FRE.LO_TYPE = 'AMANAT FREIGHT'
+            AND STATUS='Y'
+    )   
+    SELECT   
+                AMT.PO_ID AMT_ID ,
+                AMTD.DET_ID AS AMTD_ID,
+                INITCAP(LD.COMPANY_NAME || ' (Party - ' || LD.PARTY_NAME || ')') AS CO_PARTY,
+                AMTD.ITEM_ID,
+                ITM.ITEM_NAME,
+                AMTD.CHANGE_BAGS AMANAT_BAGS ,
+                AMTD.WAREHOUSE_ID,
+                LD.WAREHOUSE_NAME,
+                INITCAP(AMT.CREATED_BY)||' (' ||TO_CHAR(AMT.CREATED_ON,'DD-MON-YYYY')||')' CREATED_BY,
+                AMT.CREATED_ON,
+                INITCAP(TRANSPORTER_INFO) TRANSPORTER_INFO,
+                INITCAP(TRANSPORT_TYPEE) TRANSPORT_TYPEE,
+                FREIGHT_CHIT,
+                FREIGHT_TEH,
+                FREIGHT_COMMISION,
+                FREIGHT_AMOUNT
+    FROM 
+                            AB_ITEMS_MASTER ITM          
+                JOIN   AB_PO_PURCHASE_ORDER_DET AMTD ON AMTD.ITEM_ID=ITM.ITEM_ID
+                JOIN   AB_PO_PURCHASE_ORDER AMT ON AMT.PO_ID=AMTD.PO_ID
+                JOIN   LOV_DATE LD ON LD.AMTD_ID=AMTD.DET_ID
+                JOIN  LOGSITC_DETAIL LOD ON LOD.AMANAT_ID=AMT.PO_ID
+    LEFT    JOIN  FREIGHT_DETAIL FRE ON FRE.FRE_ID=LOD.LO_ID
+    WHERE
+                  PO_TYPE='AMANAT'
+         AND AMT.ORG_ID=P_ORG_ID
+         AND AMT.STATUS='Y'
+        ORDER BY
+                AMTD.DET_ID DESC
+            ----------------------------------------------------------------
+        ) LOOP
+            V_AMANAT_INWARD := AMANAT_INWARD_OBJECT(
+                AMT.AMT_ID                 ,
+                AMT.AMTD_ID               ,
+                AMT.CO_PARTY          ,
+                AMT.ITEM_ID                            ,
+                AMT.ITEM_NAME                   ,
+                AMT.AMANAT_BAGS              ,
+                AMT.WAREHOUSE_ID            ,
+                AMT.WAREHOUSE_NAME    ,
+                AMT.CREATED_BY                   ,
+                AMT.CREATED_ON                  ,
+                AMT.TRANSPORTER_INFO     ,
+                AMT.TRANSPORT_TYPEE        ,
+                AMT.FREIGHT_CHIT                 ,
+                AMT.FREIGHT_TEH                   ,
+                AMT.FREIGHT_COMMISION   ,
+                AMT.FREIGHT_AMOUNT          
+            );
+            PIPE ROW (V_AMANAT_INWARD);
+        END LOOP;
+
+        RETURN;
+    END AMANAT_INWARD;
+    
+  -------------------------------3-------------------GRN_TRANSFER_INWARD-----------------------------------------------------
+  
+FUNCTION GRN_TRANSFER_INWARD(P_ORG_ID NUMBER) 
+                RETURN GRN_TRANSFER_INWARD_TYPE PIPELINED IS
+                V_GRN_TRANSFER_INWARD GRN_TRANSFER_INWARD_OBJECT;
+    BEGIN
+        FOR TW IN (
+            ----------------------------------------------------------------
+                  WITH AVAILABLE_STOCK AS(
+        SELECT
+                      TRACE_ID GRN_ID
+        FROM
+                 AB_USER_ACTION_LOG 
+        WHERE
+                      ORG_ID=P_ORG_ID
+            AND  TRACE_TYPE='GRN STOCK-IN TRACE'    
+            AND STATUS='Y'
+        ORDER BY
+                    TRACE_ID DESC
+)
+ ,STOCK_DETAILS AS (
+              SELECT
+                        STKD.ITEM_ID||STKD.WAREHOUSE_ID STOCK_ID,
+                        STKD.ITEM_ID,
+                        STKD.WAREHOUSE_ID,
+                        SUM(STKD.BAGS) STOCK_BAGS
+                FROM
+                             AB_STOCK_WISE_INFO STK
+                 LEFT   JOIN AB_STOCK_WISE_INFO STKD ON STKD.IDS=STK.STOCK_ID
+                WHERE
+                            STKD.STOCK_TYPE='PHYSICAL STOCK DET'
+                   AND  STK.ORG_ID=P_ORG_ID
+                   AND STKD. STATUS='Y'
+                GROUP BY
+                    STKD.ITEM_ID,
+                    STKD.WAREHOUSE_ID
+) 
+,ADVANCE_ALLOCATION AS(
+SELECT
+            ITEM_ID||WAREHOUSE_ID STOCK_ID,
+            SUM(NO_BAGS) ALLOCATION_BAGS
+    FROM
+            AB_SO_ORDER_DET ASL 
+    WHERE
+            SOD_TYPE='ASO ALLOCATION DET'   
+            AND ORG_ID=P_ORG_ID
+            AND ASL.STATUS='Y'
+    GROUP BY
+            ITEM_ID||WAREHOUSE_ID     
+)
+,COUNTER_SALE_ORDER AS(
+SELECT
+            TO_NUMBER(ITEM_ID||WAREHOUSE_ID) STOCK_ID,
+            SUM(NO_BAGS) COUNTER_BAGS
+    FROM
+            AB_SO_ORDER_DET ASL 
+    WHERE
+            SOD_TYPE='CSO DET'   
+            AND ORG_ID=P_ORG_ID
+            AND ASL.STATUS='Y'
+    GROUP BY
+            ITEM_ID||WAREHOUSE_ID      
+)
+,TOTAL_STOCK AS(
+    SELECT
+            C.STOCK_ID,
+            C.WAREHOUSE_ID TO_WAREHOUSE,
+            C.ITEM_ID,           
+            GRN_BAGS AVAILABLE_BAGS
+    FROM(
+        SELECT
+                        TO_NUMBER(ITEM_ID||WAREHOUSE_ID) STOCK_ID,
+                        C.WAREHOUSE_ID,
+                        ITEM_ID,
+                        SUM(GRN_BAGS)GRN_BAGS
+        FROM
+                 TABLE(AB_GENERAL_PACKAGE.GRN_STOCK_INWARD(P_ORG_ID))C
+                 JOIN AVAILABLE_STOCK ASTK ON ASTK.GRN_ID=C.GRND_ID
+        GROUP BY
+               ITEM_ID||WAREHOUSE_ID ,
+               WAREHOUSE_NAME,
+               WAREHOUSE_ID,
+               ITEM_ID,
+               ITEM_NAME  )C
+),
+TO_WAREHOUSE AS(
+         SELECT
+                TR.ITEM_IDD||TR.WAREHOUSE_ID STOCK_ID,
+                TR.WAREHOUSE_ID TO_WAREHOUSE,
+                 TR.ITEM_IDD ITEM_ID,
+                SUM(RECEIVED_BAGS) AVAILABLE_BAGS   
+         FROM
+                 AB_LOGISTICS_INFO_DET TR
+        WHERE
+                     TR.DET_TYPE='GRN TRANSFER DET'  
+            AND TR.ORG_ID=P_ORG_ID
+            AND TR.STATUS='Y'   
+         GROUP BY
+                TR.ITEM_IDD,TR.WAREHOUSE_ID
+),
+FROM_WAREHOUSE AS(
+         SELECT
+                TO_NUMBER(TR.ITEM_IDD||TR.FROM_WAREHOUSE_ID) STOCK_ID,
+                TR.FROM_WAREHOUSE_ID FROM_WAREHOUSE_ID,
+                 TR.ITEM_IDD ITEM_ID,
+                SUM(RECEIVED_BAGS) AVAILABLE_BAGS   
+         FROM
+                 AB_LOGISTICS_INFO_DET TR
+        WHERE
+                     TR.DET_TYPE='GRN TRANSFER DET'  
+            AND TR.ORG_ID=P_ORG_ID
+            AND TR.STATUS='Y'   
+         GROUP BY
+                TR.ITEM_IDD,TR.FROM_WAREHOUSE_ID
+)
+,FINAL_STOCK AS(       
+    SELECT
+              STK.STOCK_ID,
+              STK.TO_WAREHOUSE,
+              STK.ITEM_ID,
+              SUM(STK.AVAILABLE_BAGS) -NVL(SUM(FWAR.AVAILABLE_BAGS),0) + NVL(SUM(TWAR.AVAILABLE_BAGS),0) AVAILABLE_BAGS 
+    FROM
+                      TOTAL_STOCK STK
+    LEFT JOIN FROM_WAREHOUSE FWAR ON FWAR.STOCK_ID=STK.STOCK_ID
+             AND  STK.ITEM_ID= FWAR.ITEM_ID
+    LEFT JOIN  TO_WAREHOUSE TWAR ON TWAR.STOCK_ID=STK.STOCK_ID
+             AND  STK.ITEM_ID= TWAR.ITEM_ID
+    GROUP BY
+            STK.STOCK_ID,
+            STK.TO_WAREHOUSE,
+            STK.ITEM_ID
+ ) 
+  ,STOCK_DETAILS AS (
+              SELECT
+                        STKD.ITEM_ID||STKD.WAREHOUSE_ID STOCK_ID,
+                        STKD.ITEM_ID,
+                        STKD.WAREHOUSE_ID,
+                        SUM(STKD.BAGS) STOCK_BAGS
+                FROM
+                             AB_STOCK_WISE_INFO STK
+                 LEFT   JOIN AB_STOCK_WISE_INFO STKD ON STKD.IDS=STK.STOCK_ID
+                WHERE
+                            STKD.STOCK_TYPE='PHYSICAL STOCK DET'
+                   AND  STK.ORG_ID=P_ORG_ID
+                   AND STKD. STATUS='Y'
+                   AND STK.STOCK_WISE_ID=408
+                GROUP BY
+                    STKD.ITEM_ID,
+                    STKD.WAREHOUSE_ID
+) 
+        SELECT
+                C.STOCK_ID,
+                REG_NAME WAREHOUSE_NAME,
+                C.TO_WAREHOUSE WAREHOUSE_ID,
+                C.ITEM_ID,
+                ITM.ITEM_NAME,
+                C.AVAILABLE_BAGS - NVL(STOCK_BAGS,0) - NVL(ALLOCATION_BAGS,0) -NVL(COUNTER_BAGS,0) AVAILABLE_BAGS
+        FROM(
+         SELECT
+                    *
+         FROM
+                FINAL_STOCK
+        UNION ALL
+        SELECT
+                   TO_NUMBER(TR.ITEM_IDD||TR.WAREHOUSE_ID) STOCK_ID,
+                   TR.WAREHOUSE_ID TO_WAREHOUSE ,
+                   TR.ITEM_IDD ITEM_ID  ,
+                   SUM(RECEIVED_BAGS)-NVL(FWAR.AVAILABLE_BAGS,0) AVAILABLE_BAGS
+        FROM
+                            AB_LOGISTICS_INFO_DET TR
+        LEFT JOIN  FINAL_STOCK FS ON FS.STOCK_ID=TO_NUMBER(ITEM_IDD||WAREHOUSE_ID)
+      LEFT JOIN   FROM_WAREHOUSE FWAR ON FWAR.STOCK_ID=TR.ITEM_IDD||TR.WAREHOUSE_ID
+        WHERE
+                     TR.DET_TYPE='GRN TRANSFER DET'  
+            AND TR.ORG_ID=P_ORG_ID
+            AND TR.STATUS='Y'  
+            AND  FS.STOCK_ID IS NULL
+        GROUP BY
+                 TR.ITEM_IDD,TR.WAREHOUSE_ID ,FWAR.AVAILABLE_BAGS
+        )C
+              JOIN    AB_SETUP_REGISTRATION WAR ON WAR.SR_ID=C.TO_WAREHOUSE
+              JOIN   AB_ITEMS_MASTER ITM ON ITM.ITEM_ID=C.ITEM_ID
+    LEFT  JOIN   STOCK_DETAILS STK ON STK.STOCK_ID=C.STOCK_ID
+    LEFT JOIN   ADVANCE_ALLOCATION ASL ON ASL.STOCK_ID=C.STOCK_ID
+    LEFT JOIN   COUNTER_SALE_ORDER CSO ON CSO.STOCK_ID=C.STOCK_ID
+    WHERE
+           AVAILABLE_BAGS<>0
+            ----------------------------------------------------------------
+        ) LOOP
+            V_GRN_TRANSFER_INWARD := GRN_TRANSFER_INWARD_OBJECT(
+                TW.STOCK_ID,
+                TW.WAREHOUSE_NAME,
+                TW.WAREHOUSE_ID,
+                TW.ITEM_ID,
+                TW.ITEM_NAME,
+                TW.AVAILABLE_BAGS
+            );
+            PIPE ROW (V_GRN_TRANSFER_INWARD);
+        END LOOP;
+
+        RETURN;
+    END GRN_TRANSFER_INWARD;
+    -----------------------4-----------------AMANAT_TRANSFER_INWARD---------------------------------------------------------------------------------------------
+        FUNCTION AMANAT_TRANSFER_INWARD(P_ORG_ID NUMBER) 
+                RETURN AMANAT_TRANSFER_INWARD_TYPE PIPELINED IS
+                V_AMANAT_TRANSFER_INWARD AMANAT_TRANSFER_INWARD_OBJECT;
+    BEGIN
+        FOR GT IN (
+            ----------------------------------------------------------------
+WITH AVAILABLE_STOCK AS(
+        SELECT
+                      TRACE_ID GRN_ID
+        FROM
+                 AB_USER_ACTION_LOG 
+        WHERE
+                      ORG_ID=P_ORG_ID
+            AND  TRACE_TYPE='AMANAT STOCK-IN TRACE'    
+            AND STATUS='Y'
+        ORDER BY
+                    TRACE_ID DESC
+)
+ ,STOCK_DETAILS AS (
+              SELECT
+                        STKD.ITEM_ID||STKD.WAREHOUSE_ID STOCK_ID,
+                        STKD.ITEM_ID,
+                        STKD.WAREHOUSE_ID,
+                        SUM(STKD.BAGS) STOCK_BAGS
+                FROM
+                             AB_STOCK_WISE_INFO STK
+                 LEFT   JOIN AB_STOCK_WISE_INFO STKD ON STKD.IDS=STK.STOCK_ID
+                WHERE
+                            STKD.STOCK_TYPE='PHYSICAL STOCK DET'
+                   AND  STK.ORG_ID=P_ORG_ID
+                   AND STKD. STATUS='Y'
+                GROUP BY
+                    STKD.ITEM_ID,
+                    STKD.WAREHOUSE_ID
+) 
+,AMANAT_OUTWARD AS(
+              SELECT
+                    TO_NUMBER(ITEM_ID||WAREHOUSE_ID) STOCK_ID,
+                    SUM(CHANGE_BAGS) OUTWARD_BAGS
+            FROM
+                                AB_PO_PURCHASE_ORDER AMT
+                    JOIN  AB_PO_PURCHASE_ORDER_DET AMTD ON AMTD.PO_ID = AMT.PO_ID
+            WHERE
+                               AMT.ORG_ID=P_ORG_ID
+                    AND   PO_TYPE='AMANAT OUTWARD'
+                    AND AMT.STATUS='Y'
+             GROUP BY
+                   ITEM_ID||WAREHOUSE_ID 
+) 
+,ADVANCE_ALLOCATION AS(
+SELECT
+            ITEM_ID||WAREHOUSE_ID STOCK_ID,
+            SUM(NO_BAGS) ALLOCATION_BAGS
+    FROM
+            AB_SO_ORDER_DET ASL 
+    WHERE
+            SOD_TYPE='ASO ALLOCATION DET'   
+            AND ORG_ID=P_ORG_ID
+            AND ASL.STATUS='Y'
+    GROUP BY
+            ITEM_ID||WAREHOUSE_ID     
+)
+,TOTAL_STOCK AS(
+    SELECT
+            C.STOCK_ID,
+            C.WAREHOUSE_ID TO_WAREHOUSE,
+            C.ITEM_ID,           
+            AMANAT_BAGS AVAILABLE_BAGS
+    FROM(
+        SELECT
+                        TO_NUMBER(ITEM_ID||WAREHOUSE_ID) STOCK_ID,
+                        C.WAREHOUSE_ID,
+                        ITEM_ID,
+                        SUM(AMANAT_BAGS)AMANAT_BAGS
+        FROM
+                 TABLE(AB_GENERAL_PACKAGE.AMANAT_INWARD(P_ORG_ID))C
+                 JOIN AVAILABLE_STOCK ASTK ON ASTK.GRN_ID=C.AMTD_ID
+        GROUP BY
+               ITEM_ID||WAREHOUSE_ID ,
+               WAREHOUSE_NAME,
+               WAREHOUSE_ID,
+               ITEM_ID,
+               ITEM_NAME  )C
+),
+TO_WAREHOUSE AS(
+         SELECT
+                TR.ITEM_IDD||TR.WAREHOUSE_ID STOCK_ID,
+                TR.WAREHOUSE_ID TO_WAREHOUSE,
+                 TR.ITEM_IDD ITEM_ID,
+                SUM(RECEIVED_BAGS) AVAILABLE_BAGS   
+         FROM
+                 AB_LOGISTICS_INFO_DET TR
+        WHERE
+                     TR.DET_TYPE='AMANAT TRANSFER DET'  
+            AND TR.ORG_ID=P_ORG_ID
+            AND TR.STATUS='Y'   
+         GROUP BY
+                TR.ITEM_IDD,TR.WAREHOUSE_ID
+),
+FROM_WAREHOUSE AS(
+         SELECT
+                TO_NUMBER(TR.ITEM_IDD||TR.FROM_WAREHOUSE_ID) STOCK_ID,
+                TR.FROM_WAREHOUSE_ID FROM_WAREHOUSE_ID,
+                 TR.ITEM_IDD ITEM_ID,
+                SUM(RECEIVED_BAGS) AVAILABLE_BAGS   
+         FROM
+                 AB_LOGISTICS_INFO_DET TR
+        WHERE
+                     TR.DET_TYPE='AMANAT TRANSFER DET'  
+            AND TR.ORG_ID=P_ORG_ID
+            AND TR.STATUS='Y'   
+         GROUP BY
+                TR.ITEM_IDD,TR.FROM_WAREHOUSE_ID
+)
+,FINAL_STOCK AS(       
+    SELECT
+              STK.STOCK_ID,
+              STK.TO_WAREHOUSE,
+              STK.ITEM_ID,
+              SUM(STK.AVAILABLE_BAGS) -NVL(SUM(FWAR.AVAILABLE_BAGS),0) + NVL(SUM(TWAR.AVAILABLE_BAGS),0)   AVAILABLE_BAGS 
+    FROM
+                      TOTAL_STOCK STK
+    LEFT JOIN FROM_WAREHOUSE FWAR ON FWAR.STOCK_ID=STK.STOCK_ID
+             AND  STK.ITEM_ID= FWAR.ITEM_ID
+    LEFT JOIN  TO_WAREHOUSE TWAR ON TWAR.STOCK_ID=STK.STOCK_ID
+             AND  STK.ITEM_ID= TWAR.ITEM_ID
+    GROUP BY
+            STK.STOCK_ID,
+            STK.TO_WAREHOUSE,
+            STK.ITEM_ID
+ ) 
+  ,STOCK_DETAILS AS (
+              SELECT
+                        STKD.ITEM_ID||STKD.WAREHOUSE_ID STOCK_ID,
+                        STKD.ITEM_ID,
+                        STK.STOCK_WISE_ID,
+                        SUM(STKD.BAGS) STOCK_BAGS
+                FROM
+                             AB_STOCK_WISE_INFO STK
+                 LEFT   JOIN AB_STOCK_WISE_INFO STKD ON STKD.IDS=STK.STOCK_ID
+                WHERE
+                            STKD.STOCK_TYPE='PHYSICAL STOCK DET'
+                   AND  STK.ORG_ID=P_ORG_ID
+                   AND STKD. STATUS='Y'
+                   AND STK.STOCK_WISE_ID=409
+                GROUP BY
+                    STKD.ITEM_ID,
+                    STKD.WAREHOUSE_ID
+) 
+        SELECT
+                C.STOCK_ID,
+                REG_NAME WAREHOUSE_NAME,
+                C.TO_WAREHOUSE WAREHOUSE_ID,
+                C.ITEM_ID,
+                ITM.ITEM_NAME,
+                C.AVAILABLE_BAGS - NVL(STOCK_BAGS,0) - NVL(OUTWARD_BAGS,0)  - NVL(ALLOCATION_BAGS,0)  AVAILABLE_BAGS
+        FROM(
+         SELECT
+                    *
+         FROM
+                FINAL_STOCK
+        UNION ALL
+        SELECT
+                   TO_NUMBER(TR.ITEM_IDD||TR.WAREHOUSE_ID) STOCK_ID,
+                   TR.WAREHOUSE_ID TO_WAREHOUSE ,
+                   TR.ITEM_IDD ITEM_ID  ,
+                   SUM(RECEIVED_BAGS)-NVL(FWAR.AVAILABLE_BAGS,0) AVAILABLE_BAGS
+        FROM
+                            AB_LOGISTICS_INFO_DET TR
+        LEFT JOIN  FINAL_STOCK FS ON FS.STOCK_ID=TO_NUMBER(ITEM_IDD||WAREHOUSE_ID)
+      LEFT JOIN   FROM_WAREHOUSE FWAR ON FWAR.STOCK_ID=TR.ITEM_IDD||TR.WAREHOUSE_ID
+        WHERE
+                     TR.DET_TYPE='AMANAT TRANSFER DET'  
+            AND TR.ORG_ID=P_ORG_ID
+            AND TR.STATUS='Y'  
+            AND  FS.STOCK_ID IS NULL
+        GROUP BY
+                 TR.ITEM_IDD,TR.WAREHOUSE_ID ,FWAR.AVAILABLE_BAGS
+        )C
+              JOIN    AB_SETUP_REGISTRATION WAR ON WAR.SR_ID=C.TO_WAREHOUSE
+              JOIN   AB_ITEMS_MASTER ITM ON ITM.ITEM_ID=C.ITEM_ID
+    LEFT  JOIN   STOCK_DETAILS STK ON STK.STOCK_ID=C.STOCK_ID
+    LEFT JOIN    AMANAT_OUTWARD AOUT ON AOUT.STOCK_ID=C.STOCK_ID
+     LEFT JOIN   ADVANCE_ALLOCATION ASL ON ASL.STOCK_ID=C.STOCK_ID   
+    WHERE
+           AVAILABLE_BAGS<>0
+            ----------------------------------------------------------------
+        ) LOOP
+            V_AMANAT_TRANSFER_INWARD := AMANAT_TRANSFER_INWARD_OBJECT(
+                GT.STOCK_ID,
+                GT.WAREHOUSE_NAME ,
+                GT.WAREHOUSE_ID,
+                GT.ITEM_ID,
+                GT.ITEM_NAME,
+                GT.AVAILABLE_BAGS 
+            );
+            PIPE ROW (V_AMANAT_TRANSFER_INWARD);
+        END LOOP;
+
+        RETURN;
+    END AMANAT_TRANSFER_INWARD;
+    ----------------------------------------------5 TRANSCATION WISE DETAIL ---------------------------------------------------------------------------------------------------------------
+      --------------------------------1-------------------GRN +OPENING STOCK IN WARD -----------------------------------------------------------
+       FUNCTION GRN_STOCK_INWARD(P_ORG_ID NUMBER) 
+                RETURN GRN_STOCK_INWARD_TYPE PIPELINED IS
+                V_GRN_STOCK_INWARD GRN_STOCK_INWARD_OBJECT;
+    BEGIN
+        FOR GS IN (
+            ----------------------------------------------------------------
+    WITH TAX_POLICY AS (
+                SELECT 
+                    POLICY_ID,
+                    FED,
+                    GST,
+                    AIT 
+                FROM
+                    AB_SETUP_POLICY_REGISTERED SPR
+                WHERE
+                    STATUS = 'Y'
+                    AND ORG_ID=P_ORG_ID
+)
+,PURCHASE_ORDER AS(
+                SELECT
+                          C.*,
+                          NVL(TOTAL_AMOUNT,0)/NVL(NO_BAGS,0) PER_BAGS
+                FROM(
+                SELECT
+                                PO_ID,
+                                DET_ID POD_ID,
+                                COMPANY_ORDER_NO,
+                                TRANSACTION_DATE,
+                                PURCHASING_TYPE,
+                                ITEM_ID,
+                                ITEM_NAME,
+                                NO_BAGS,
+                            CASE
+                                        WHEN AIT IS NULL THEN     ROUND(AFTER_GST_VALUE,0)
+                                        ELSE   ROUND(NVL(AFTER_GST_VALUE,0) * NVL(AIT,0)/100)+ROUND(NVL(AFTER_GST_VALUE,0))
+                                END TOTAL_AMOUNT
+                FROM (
+                SELECT
+                            POR.DET_ID ,
+                            POR.PO_ID,
+                            TO_CHAR(PO.TRANSACTION_DATE, 'DD-MON-YYYY') AS TRANSACTION_DATE,
+                            PO.COMPANY_ORDER_NO,
+                            PO.PURCHASING_TYPE,
+                            ITM.ITEM_ID,
+                            ITM.ITEM_NAME||' ('|| ITM.PACKING_SIZE || ' '|| ITM.UNIT || ' '|| ITM.PACKING || ')' AS ITEM_NAME,
+                            POR.CHANGE_BAGS NO_BAGS,
+                            CASE 
+                                    WHEN GST IS NULL THEN NVL(POR.NET_AMOUNT,0)+(NVL(FED,0) * NVL(POR.NET_AMOUNT, 0) / 100) 
+                                    WHEN  FED IS NULL THEN ((NVL(POR.NET_AMOUNT, 0) * NVL(GST,0) )/100)  + NVL(POR.NET_AMOUNT,0)+(NVL(FED,0) * NVL(POR.NET_AMOUNT, 0) / 100) 
+                                    ELSE ((NVL(POR.NET_AMOUNT, 0) + (FED * NVL(POR.NET_AMOUNT, 0) / 100)) * NVL(GST, 0) / 100) +  NVL(POR.NET_AMOUNT,0)+(NVL(FED,0) * NVL(POR.NET_AMOUNT, 0) / 100) 
+                            END AFTER_GST_VALUE,
+                            AIT,
+                            POR.TAX_POLICY_ID,
+                            DEAL_POLICY_ID
+                FROM 
+                                         AB_PO_DEMAND_REQ_DET DRD
+                          JOIN   AB_ITEMS_MASTER ITM ON ITM.ITEM_ID = DRD.ITEM_ID
+                          JOIN   AB_PO_PURCHASE_ORDER_DET POR ON POR.DEMAND_DET_ID = DRD.DET_ID
+                          JOIN   AB_LOOKUP_DETAIL LD ON LD.DET_ID = ITM.PRODUCT_CATEGORY_ID
+                          JOIN   AB_PO_PURCHASE_ORDER PO ON PO.PO_ID=POR.PO_ID
+                LEFT  JOIN   TAX_POLICY TP ON TP.POLICY_ID = POR.TAX_POLICY_ID
+          WHERE
+                           POR.ORG_ID=P_ORG_ID
+                AND  PO.PO_TYPE='PURCHASE ORDER'
+                ORDER BY 
+                         POR.DET_ID DESC)
+)C
+)
+,LOV_DATA AS(
+      SELECT
+                PO.PO_ID,
+                MAX(CASE WHEN REG.REG_TYPE = 'COMPANY' AND REG.SR_ID = PO.COMPANY_ID THEN REG.REG_NAME END) AS COMPANY_NAME,
+                MAX(CASE WHEN (REG.REG_TYPE = 'DEALER' OR REG.REG_TYPE = 'VENDOR' OR REG.REG_TYPE = 'CUSTOMER REGISTRATION') AND REG.SR_ID = PO.VENDOR_ID THEN COALESCE(REG.PARTY_NAME, REG.REG_NAME) END) AS VENDOR_NAME
+      FROM
+                    AB_PO_PURCHASE_ORDER PO
+          JOIN  AB_SETUP_REGISTRATION REG ON REG.SR_ID IN (PO.COMPANY_ID, PO.VENDOR_ID)
+     WHERE
+                    PO.ORG_ID=P_ORG_ID
+         AND  PO.PO_TYPE='PURCHASE ORDER'
+         GROUP BY
+                    PO.PO_ID
+)
+,PURCHASE_INOICE AS(
+            SELECT
+                   INV.IDS PO_ID,
+                   INV.PO_ID INVOICE_NO,
+                   INVD.DET_ID INVOICED_NO,
+                   INV.COMPANY_INVOICE_NUMBER COMPANY_INV_NO,
+                   TO_CHAR(INV.TRANSACTION_DATE, 'DD-MON-YYYY') INV_DATE,
+                   INVD.IDS POD_ID,
+                   CHANGE_BAGS INV_BAGS
+            FROM
+                            AB_PO_PURCHASE_ORDER INV 
+                 JOIN  AB_PO_PURCHASE_ORDER_DET INVD ON INVD.PO_ID=INV.PO_ID
+                 JOIN  PURCHASE_ORDER PO ON PO.POD_ID=INVD.IDS
+            WHERE
+                       INV.ORG_ID=P_ORG_ID
+              AND INV.PO_TYPE='PURCHASE INVOICE'
+ )
+,TOTAL_DATA AS(
+    SELECT
+                    INV.PO_ID,
+                    INVOICE_NO,
+                    INVOICED_NO,
+                    COMPANY_ORDER_NO,
+                    INV_DATE,
+                    TRANSACTION_DATE,
+                    PURCHASING_TYPE,
+                    COMPANY_NAME,
+                    VENDOR_NAME,
+                    COMPANY_INV_NO,
+                    ITEM_ID,
+                    ITEM_NAME,
+                    INV_BAGS,
+                    PER_BAGS,
+                    (INV_BAGS*PER_BAGS) TOTAL_AMOUNT
+    FROM
+                        PURCHASE_ORDER PO
+             JOIN  PURCHASE_INOICE INV ON INV.POD_ID=PO.POD_ID
+    LEFT JOIN  LOV_DATA LOV ON LOV.PO_ID=PO.PO_ID
+)
+,LOGISTIC_DETAIL AS(
+                SELECT
+                         LOD.LO_DET_ID LOD_ID,
+                          GRND.LO_DET_ID GRND_ID,
+                        LO.TRANSPORT_NAME ||' ('||LO.VEHICLE_NO||') '||LO.BILTY_NO||' - '||LO.DRIVER_NAME TRANSPORT_NAME,
+                        LD.LOOKUP_DET_NAME  TRANSPORT_TYPE
+                FROM 
+                               AB_LOGISTICS_INFO_DET LOD
+                      JOIN AB_LOGISTICS_INFO LO ON LO.LO_ID=LOD.LO_ID
+                      JOIN AB_LOGISTICS_INFO_DET GRND ON GRND.IDS=LOD.LO_DET_ID
+                       AND GRND.DET_TYPE='PO GRN DET'
+            LEFT JOIN  AB_LOOKUP_DETAIL LD ON LD.DET_ID=LO.TRANSPORT_TYPE
+             WHERE
+                  LOD.DET_TYPE='PO LOGISTIC DET'
+                 AND LO.ORG_ID=P_ORG_ID
+ )
+    SELECT
+               C.PO_ID,
+               C.GRND_ID ,
+               COMPANY_ORDER_NO,
+               PURCHASING_TYPE,
+               VENDOR_NAME,
+               NVL(COMPANY_INV_NO,NULL) COMPANY_INV_NO,
+               NVL(INV_DATE,NULL)INV_DATE,
+               C.WAREHOUSE_NAME,
+               WAREHOUSE_ID,
+               ITEM_ID,
+               ITEM_NAME,
+               GRN_BAGS,
+               PER_BAGS,
+               DET_TYPE,
+               CREATED_ON,
+               TRANSPORT_NAME,
+               TRANSPORT_TYPE
+    FROM(
+    SELECT
+                PO.PO_ID,
+                GRND.LO_DET_ID GRND_ID,
+                PO.COMPANY_ORDER_NO,
+                PO.PURCHASING_TYPE ||' ('|| 'GRN Stock'||')' PURCHASING_TYPE ,
+                VENDOR_NAME,
+                COMPANY_INV_NO,
+                INV_DATE,
+                PO.ITEM_ID,
+                PO.ITEM_NAME,
+                NVL(GRND.RECEIVED_BAGS,0) GRN_BAGS,
+               PER_BAGS,
+                NVL(PO.PER_BAGS,0) *NVL(GRND.RECEIVED_BAGS,0) TOTAL_AMOUNT,
+                'GRN Stock' DET_TYPE ,
+                REG_NAME WAREHOUSE_NAME,
+                GRND.WAREHOUSE_ID,
+                GRND.CREATED_ON
+    FROM
+                            TOTAL_DATA PO
+                JOIN   AB_LOGISTICS_INFO_DET LOD ON LOD.INVOICE_NO=PO.INVOICED_NO 
+                JOIN   AB_LOGISTICS_INFO LO ON LO.LO_ID=LOD.LO_ID
+                JOIN   AB_LOOKUP_DETAIL LD ON LD.DET_ID=LO.TRANSPORT_TYPE
+                JOIN   AB_LOGISTICS_INFO_DET  GRND ON GRND.IDS=LOD.LO_DET_ID
+                JOIN   AB_LOGISTICS_INFO GRN ON GRN.LO_IDS = LO.LO_ID
+                AND   GRN.LO_ID=GRND.LO_ID
+                JOIN   AB_SETUP_REGISTRATION WAR ON WAR.SR_ID=GRND.WAREHOUSE_ID
+    WHERE
+                   LOD.ORG_ID=P_ORG_ID
+         AND  LD.DET_ID=351
+    UNION ALL
+        SELECT
+                PO.PO_ID,
+                GRND.LO_DET_ID GRND_ID,
+                PO.COMPANY_ORDER_NO,
+                PO.PURCHASING_TYPE ||' ('|| 'GRN Stock'||')' PURCHASING_TYPE ,
+                VENDOR_NAME,
+                COMPANY_INV_NO,
+                INV_DATE,
+                PO.ITEM_ID,
+                PO.ITEM_NAME,
+                NVL(GRND.RECEIVED_BAGS,0) GRN_BAGS,
+                PER_BAGS,
+                NVL(PO.PER_BAGS,0) *NVL(GRND.RECEIVED_BAGS,0) TOTAL_AMOUNT,
+                'GRN Stock' DET_TYPE ,
+                REG_NAME WAREHOUSE_NAME,
+                GRND.WAREHOUSE_ID,
+                GRND.CREATED_ON
+    FROM
+                            TOTAL_DATA PO
+                JOIN   AB_LOGISTICS_INFO_DET LOD ON LOD.INVOICE_NO=PO.INVOICED_NO 
+                JOIN  AB_LOGISTICS_INFO LO ON LO.LO_ID=LOD.LO_ID
+                JOIN  AB_LOOKUP_DETAIL LD ON LD.DET_ID=LO.TRANSPORT_TYPE
+                JOIN   AB_LOGISTICS_INFO FRE ON FRE.LO_IDS=LO.LO_ID
+                JOIN   AB_LOGISTICS_INFO_DET  GRND ON GRND.IDS=LOD.LO_DET_ID
+                JOIN   AB_LOGISTICS_INFO GRN ON GRN.LO_IDS = FRE.LO_ID
+                AND    GRN.LO_ID=GRND.LO_ID
+                JOIN   AB_SETUP_REGISTRATION WAR ON WAR.SR_ID=GRND.WAREHOUSE_ID
+    WHERE
+                       LO.ORG_ID=P_ORG_ID
+            AND  LD.DET_ID=350
+   UNION ALL
+    SELECT
+              PO.PO_ID,
+              POD.DET_ID GRND_ID,
+              TO_CHAR(POD.CO_NO) COMPANY_ORDER_NO ,
+              POD.CO_TYPE||' ('|| 'Opening Stock'||')' PURCHASING_TYPE,
+              MAX(CASE WHEN ASR.REG_TYPE = 'VENDOR' AND ASR.SR_ID = POD.CO_VENDOR_ID THEN ASR.PARTY_NAME END) AS VENDOR_NAME,
+              NULL COMPANY_INV_NO,
+              NULL INV_DATE,
+              PO.ITEM_IDD ITEM_ID,
+              IM.ITEM_NAME||' ('|| IM.PACKING_SIZE || ' '|| IM.UNIT || ' '|| IM.PACKING || ')' ITEM_NAME, 
+              POD.CHANGE_BAGS OPENING_BAGS, 
+              POD.RATE PER_BAGS ,
+              POD.NET_AMOUNT,
+              'Opening Stock'DET_TYPE ,
+              MAX(CASE WHEN ASR.REG_TYPE = 'WAREHOUSE' AND ASR.SR_ID = POD.WAREHOUSE_ID THEN ASR.REG_NAME END) AS WAREHOUSE_NAME,
+              POD.WAREHOUSE_ID,
+              POD.CREATED_ON
+   FROM 
+                  AB_PO_PURCHASE_ORDER PO
+        JOIN AB_ITEMS_MASTER IM ON IM.ITEM_ID = PO.ITEM_IDD
+        JOIN AB_PO_PURCHASE_ORDER_DET POD  ON POD.PO_ID = PO.PO_ID
+        JOIN AB_SETUP_REGISTRATION ASR ON ASR.SR_ID IN(POD.CO_AGENCY_ID,POD.CO_VENDOR_ID,POD.WAREHOUSE_ID)
+    WHERE 
+                    PO_TYPE = 'OPENING PRODUCT'
+            AND  PO.ORG_ID = P_ORG_ID
+   GROUP BY 
+              PO.PO_ID,
+              POD.DET_ID ,
+              PO.COMPANY_ORDER_NO,
+              POD.CO_TYPE,
+              PO.ITEM_IDD ,
+              IM.ITEM_NAME||' ('|| IM.PACKING_SIZE || ' '|| IM.UNIT || ' '|| IM.PACKING || ')', 
+              POD.CHANGE_BAGS   , 
+              POD.RATE  ,
+              POD.NET_AMOUNT,
+              POD.WAREHOUSE_ID,
+              TO_CHAR(POD.CO_NO),
+              POD.CREATED_ON
+    ORDER BY
+         PO_ID DESC )C
+    LEFT JOIN LOGISTIC_DETAIL LOD ON LOD.GRND_ID=C.GRND_ID
+       
+     ORDER BY
+           GRND_ID DESC     
+            ----------------------------------------------------------------
+        ) LOOP
+            V_GRN_STOCK_INWARD := GRN_STOCK_INWARD_OBJECT(
+                GS.PO_ID,
+                GS.GRND_ID,
+                GS.COMPANY_ORDER_NO,
+                GS.PURCHASING_TYPE,
+                GS.VENDOR_NAME,
+                GS.COMPANY_INV_NO,
+                GS.INV_DATE,
+                GS.WAREHOUSE_NAME,
+                GS.WAREHOUSE_ID,
+                GS.ITEM_ID,
+                GS.ITEM_NAME,
+                GS.GRN_BAGS,
+                GS.PER_BAGS,
+                GS.DET_TYPE,
+                GS.CREATED_ON,
+                GS.TRANSPORT_NAME,
+                GS.TRANSPORT_TYPE
+            );
+            PIPE ROW (V_GRN_STOCK_INWARD);
+        END LOOP;
+
+        RETURN;
+    END GRN_STOCK_INWARD;
+    --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+     
+END AB_GENERAL_PACKAGE;
+/
