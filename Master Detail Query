@@ -7,7 +7,7 @@ begin
      when 'U' then
          update EMPLOYEES SET 
           EMPLOYEES_NAME =  :EMPLOYEES_NAME,   
-          DEPT_ID = :P11_DEPT_ID,
+          DEPT_ID = :P11_DEPT_ID, 
           JOB_id  =  :JOB_id,
           CITY = :CITY
           where EMP_ID  = :EMP_ID;
