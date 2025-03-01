@@ -6,7 +6,7 @@ begin
          returning EMP_ID into :EMP_ID;
      when 'U' then
          update EMPLOYEES SET 
-          EMPLOYEES_NAME =  :EMPLOYEES_NAME,  
+          EMPLOYEES_NAME =  :EMPLOYEES_NAME,
           DEPT_ID = :P11_DEPT_ID,
           JOB_id  =  :JOB_id,
           CITY = :CITY
