@@ -1,4 +1,4 @@
-passing value in other table & from with cursor
+passing value in other table & form with cursor
   
 DECLARE
    CURSOR CUR_NAME IS
