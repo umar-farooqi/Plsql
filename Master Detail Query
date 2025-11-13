@@ -40,3 +40,31 @@ begin
       END IF;
    END IF;
 end;
+-----------------------------------------------Master Detail Query-----------------------------------------
+    BEGIN      
+          CASE :APEX$ROW_STATUS WHEN 'C' THEN
+    -----------------------------Insertion Data---------------------------------------------
+    INSERT INTO AB_PO_PURCHASE_ORDER_DET (PO_ID,ITEM_ID,CHANGE_TONS,CHANGE_BAGS,RATE,NET_AMOUNT,STATUS,REMARKS,DET_TYPE)                     
+        VALUES (:P651_PO_ID,:ITEM_ID,:CHANGE_TONS,:CHANGE_BAGS,:RATE,:NET_AMOUNT,'Y', :REMARKS,'642') 
+        returning DET_ID INTO :DET_ID;
+     -----------------------------Update Data---------------------------------------------
+     WHEN 'U' THEN
+            -----------------------------Update Data---------------------------------------------
+     UPDATE AB_PO_PURCHASE_ORDER_DET
+            SET 
+                CHANGE_TONS =  :CHANGE_TONS,
+                CHANGE_BAGS =  :CHANGE_BAGS,
+                WAREHOUSE_ID = :WAREHOUSE_ID,
+                RATE =         :RATE,
+                NET_AMOUNT =   :NET_AMOUNT,
+                STATUS =       'Y',
+                REMARKS =      :REMARKS
+            WHERE 
+               DET_ID = :DET_ID;
+    END CASE;
+
+    COMMIT;
+
+   
+END;
+
